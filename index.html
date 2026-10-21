@@ -6951,7 +6951,7 @@ var App = (function () {
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('#btnChat, #btnBig') : null;
     if (!b) return;
-    openHeroModal(b.id === 'btnChat' ? 'chat' : 'big');
+    if (b.id === 'btnChat') openChatModal(); else openHeroModal('big');
   });
 
   /* Верхний отступ под шапку Telegram (полноэкранный режим) */
@@ -6972,6 +6972,120 @@ var App = (function () {
       _w.onEvent('fullscreenChanged', applyTgInsets);
     }
   } catch (e) {}
+
+  /* ====================================================================
+     РАЗГОВОР С ПИТОМЦЕМ: ответы по правилам на основе твоих данных
+     ==================================================================== */
+  function petStatus() {
+    var today = todayKey();
+    var sch = getScheduledHabits(today);
+    var done = sch.filter(function (h) { return isHabitDone(h.id, today); }).length;
+    return { done: done, total: sch.length };
+  }
+  function finMonthSums() {
+    var mk = monthKey(new Date());
+    var sums = { must: 0, rational: 0, emo: 0 }, inc = 0;
+    state.fin.forEach(function (e) { if (e.date.slice(0, 7) === mk) sums[e.type] = (sums[e.type] || 0) + e.amount; });
+    state.inc.forEach(function (e) { if (e.date.slice(0, 7) === mk) inc += e.amount; });
+    var total = sums.must + sums.rational + sums.emo;
+    return { sums: sums, total: total, inc: inc };
+  }
+  function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function petReply(raw) {
+    var q = String(raw || '').toLowerCase().replace(/ё/g, 'е');
+    var name = state.user.name || 'друг';
+    var st = petStatus(), f = finMonthSums(), li = lvlInfo();
+    function has() { for (var i = 0; i < arguments.length; i++) if (q.indexOf(arguments[i]) >= 0) return true; return false; }
+    if (state.dead && !has('воскре')) return 'Я… погиб из-за вредных привычек. Нажми «Воскресить героя» на экране «Сегодня», и я вернусь.';
+    if (has('привет', 'здравств', 'хай', 'добрый', 'здорово')) return pickOne(['Привет, ' + name + '! Рад тебя видеть 🦊', 'Здорово, ' + name + '! Чем займёмся сегодня?', 'Привет! Сегодня выполнено ' + st.done + ' из ' + st.total + ' дел.']);
+    if (has('как дела', 'как ты', 'самочувств', 'здоровь', 'как жизнь')) {
+      var hp = Math.round(state.hp);
+      return hp > 80 ? 'Отлично! Здоровье ' + hp + '/100, полон сил ❤️' : hp > 50 ? 'Нормально, но здоровье ' + hp + '/100. Меньше вредных привычек — и буду огурцом.' : hp > 25 ? 'Мне нехорошо… здоровье ' + hp + '/100. Помоги: отметь полезные дела и отдохни от вредного.' : 'Совсем плохо, здоровье ' + hp + '/100. Ещё пара вредных привычек — и я не выдержу!';
+    }
+    if (has('зарплат', 'доход', 'пришл', 'заработ')) return f.inc > 0 ? 'За этот месяц пришло ' + fmtMoney(f.inc) + '. Потрачено ' + fmtMoney(f.total) + ', остаток ' + fmtMoney(f.inc - f.total) + '.' : 'Доходов за этот месяц пока нет. Запиши зарплату на вкладке «Деньги» 💰';
+    if (has('остаток', 'баланс', 'сколько осталось')) return 'Остаток за месяц: ' + fmtMoney(f.inc - f.total) + ' (пришло ' + fmtMoney(f.inc) + ', потрачено ' + fmtMoney(f.total) + ').';
+    if (has('эмоци', 'импульс')) { var ep = f.total ? Math.round(f.sums.emo / f.total * 100) : 0; return f.total ? 'Эмоциональных трат ' + fmtMoney(f.sums.emo) + ' — это ' + ep + '%. ' + (ep >= 30 ? 'Многовато. Попробуй паузу 24 часа перед покупкой.' : 'Неплохо, держим в узде.') : 'Трат пока нет — нечего анализировать 🙂'; }
+    if (has('трат', 'потратил', 'расход', 'деньги', 'денег', 'финанс')) {
+      if (!f.total) return 'За этот месяц трат пока нет. Добавь на вкладке «Деньги».';
+      return 'За месяц потрачено ' + fmtMoney(f.total) + ': обязательные ' + fmtMoney(f.sums.must) + ', рациональные ' + fmtMoney(f.sums.rational) + ', эмоциональные ' + fmtMoney(f.sums.emo) + '.';
+    }
+    if (has('серия', 'стрик', 'дней подряд')) return 'Серия: ' + state.streak + ' дн., рекорд ' + state.bestStreak + '. ' + (state.streak >= 3 ? 'Так держать! 🔥' : 'Отметь сегодня хоть одно дело — и серия пойдёт.');
+    if (has('уровень', 'xp', 'опыт', 'левел')) return 'Ты на ' + li.level + ' уровне, до следующего ' + Math.max(0, li.need - li.cur) + ' XP.';
+    if (has('сегодня', 'план', 'что делать', 'дела')) return st.total ? 'Сегодня выполнено ' + st.done + ' из ' + st.total + '. ' + (st.done === st.total ? 'Идеальный день! 🎉' : 'Осталось ' + (st.total - st.done) + ' — давай по одному.') : 'На сегодня дел нет. Добавь привычки в «Разделах».';
+    if (has('вредн', 'сигарет', 'курить', 'курю', 'алкогол', 'пить', 'фастфуд', 'сладк')) return pickOne(['Каждая вредная привычка отнимает мне здоровье. Попробуй заменить её полезной — стакан воды или 10 приседаний.', 'Не ругаю, но береги меня: я теряю ❤️ при каждой отметке вредного. Ты справишься!', 'Желание длится минут 10–15. Переключись на дело из списка — и оно пройдёт.']);
+    if (has('совет', 'помоги', 'мотив', 'устал', 'лень', 'не хочу', 'грустно')) return pickOne(['Начни с самого маленького дела — две минуты. Остальное подтянется.', 'Выпей воды и отметь одно дело. Маленький шаг тоже считается 💪', 'Ты уже далеко зашёл: серия ' + state.streak + ' дн. Не бросай сейчас!', 'Если тяжело — урежь план на сегодня до одного дела. Это нормально.']);
+    if (has('спасибо', 'молодец', 'круто', 'класс')) return pickOne(['Всегда рад! 🦊', 'Это ты молодец, я только болею за тебя.', 'Приятно слышать! Продолжаем?']);
+    if (has('кто ты', 'как зовут', 'ты кто')) return 'Я твой питомец-помощник. Слежу за привычками, тратами и здоровьем, подбадриваю и иногда ворчу 🙂';
+    if (has('пока', 'до свидан', 'спокойной')) return 'Пока, ' + name + '! Загляни вечером — подведём итоги дня.';
+    return pickOne(['Не совсем понял 🙂 Спроси про дела, траты, зарплату, серию или здоровье.', 'Могу рассказать про твой день, деньги, серию, здоровье или дать совет. Что интересно?', 'Хм… Попробуй: «как дела», «мои траты», «совет», «что сегодня».']);
+  }
+  function petSpeak(text) {
+    try {
+      if (state.settings.voice === false || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text.replace(/[\u{1F000}-\u{1FFFF}\u2600-\u27BF\uFE0F]/gu, ''));
+      u.lang = 'ru-RU'; u.rate = 1.05; u.pitch = 1.25;
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  function openChatModal() {
+    var c = $('modalContainer'); if (!c) return;
+    closeHeroModal(); c.hidden = false;
+    var overlay = el('div', 'modal-overlay'), box = el('div', 'modal-box');
+    box.style.maxHeight = '88vh';
+    var head = el('div', 'modal-head');
+    head.appendChild(el('h2', null, '💬 Разговор с героем'));
+    var hb = el('div'); hb.style.cssText = 'display:flex;gap:6px';
+    var vb = el('button', 'btn ghost sm', state.settings.voice === false ? '🔇' : '🔊');
+    vb.setAttribute('aria-label', 'Голос');
+    vb.onclick = function () { state.settings.voice = state.settings.voice === false; vb.textContent = state.settings.voice === false ? '🔇' : '🔊'; if (state.settings.voice === false && window.speechSynthesis) window.speechSynthesis.cancel(); save(); };
+    var x = el('button', 'modal-close', '✕');
+    x.onclick = function () { if (window.speechSynthesis) window.speechSynthesis.cancel(); closeHeroModal(); };
+    hb.appendChild(vb); hb.appendChild(x); head.appendChild(hb); box.appendChild(head);
+
+    var log = el('div'); log.style.cssText = 'display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:140px;max-height:38vh';
+    box.appendChild(log);
+    function bubble(text, me) {
+      var b = el('div', null, text);
+      b.style.cssText = 'max-width:85%;padding:9px 12px;border-radius:16px;line-height:1.35;' + (me ? 'align-self:flex-end;background:var(--accent);color:var(--on)' : 'align-self:flex-start;background:var(--card2);color:var(--ink)');
+      log.appendChild(b); log.scrollTop = log.scrollHeight;
+    }
+    function say(text) { bubble(text, false); setHeroSpeech(text); petSpeak(text); }
+    function ask(text) {
+      text = String(text || '').trim(); if (!text) return;
+      bubble(text, true); hapticImpact('light');
+      setTimeout(function () { say(petReply(text)); }, 350);
+    }
+    var chips = el('div'); chips.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+    ['Как дела?', 'Что сегодня?', 'Мои траты', 'Сколько пришло?', 'Совет'].forEach(function (t) {
+      var ch = el('button', 'chip', t); ch.style.minHeight = '34px'; ch.onclick = function () { ask(t); }; chips.appendChild(ch);
+    });
+    box.appendChild(chips);
+    var row = el('div'); row.style.cssText = 'display:flex;gap:8px';
+    var inp = el('input', 'input'); inp.placeholder = 'Напиши герою…'; inp.style.flex = '1';
+    var send = el('button', 'btn', '➤'); send.style.minWidth = '52px';
+    function go() { var v = inp.value; inp.value = ''; ask(v); }
+    send.onclick = go;
+    inp.onkeydown = function (e) { if (e.key === 'Enter') go(); };
+    row.appendChild(inp); row.appendChild(send); box.appendChild(row);
+    overlay.onclick = function (e) { if (e.target === overlay) { if (window.speechSynthesis) window.speechSynthesis.cancel(); closeHeroModal(); } };
+    overlay.appendChild(box); c.appendChild(overlay);
+    var first = state.dead ? petReply('') : 'Привет, ' + (state.user.name || 'друг') + '! Спроси меня про дела, траты, зарплату, серию или здоровье.';
+    bubble(first, false); setHeroSpeech(first);
+  }
+  // Герой сам иногда подаёт голос
+  setInterval(function () {
+    var c = $('modalContainer');
+    if (document.hidden || !$('bubble') || (c && !c.hidden)) return;
+    var st = petStatus(), f = finMonthSums(), t;
+    if (state.dead) t = 'Воскреси меня, пожалуйста…';
+    else if (state.hp < 40) t = 'Мне нехорошо. Отдохнём от вредного?';
+    else if (st.total && st.done === st.total) t = 'Все дела на сегодня сделаны! Горжусь тобой 🎉';
+    else if (st.total) t = 'Осталось дел: ' + (st.total - st.done) + '. Начнём с самого лёгкого?';
+    else if (f.total && f.sums.emo / f.total >= 0.3) t = 'Заметил много эмоциональных трат. Подумаем перед следующей?';
+    else t = Content.reply('general');
+    setHeroSpeech(t);
+  }, 40000);
 
   function init() {
     // 1. Инициализация Telegram WebApp
