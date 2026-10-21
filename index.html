@@ -229,7 +229,7 @@ textarea.input{min-height:96px;resize:vertical}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--c,var(--accent));flex:none}
 
 /* hero bar */
-#heroBar{position:sticky;top:0;z-index:20;margin:0 -14px 12px;padding:calc(env(safe-area-inset-top,0px) + 8px) 14px 8px;background:var(--glass);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);border-bottom:1px solid var(--line)}
+#heroBar{position:sticky;top:0;z-index:20;margin:0 -14px 12px;padding:calc(env(safe-area-inset-top,0px) + var(--tg-top,0px) + 8px) 14px 8px;background:var(--glass);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);border-bottom:1px solid var(--line)}
 #heroBar .hb{display:flex;gap:10px;align-items:center}
 #heroCanvas{width:132px;height:88px;border-radius:16px;image-rendering:pixelated;image-rendering:crisp-edges;background:var(--card2);flex:none;transition:width .35s cubic-bezier(.2,.8,.2,1),height .35s cubic-bezier(.2,.8,.2,1)}
 #heroBar.big .hb{flex-direction:column;align-items:stretch}
@@ -6554,6 +6554,80 @@ var App = (function () {
   }
 
   /* ---------- СТАРТ ПРИЛОЖЕНИЯ ---------- */
+  /* ---------- КНОПКИ ГЕРОЯ: 💬 реплика, ⤢ крупный питомец ---------- */
+  var stopBigHero = null;
+  function closeHeroModal() {
+    var c = $('modalContainer');
+    if (stopBigHero) { try { stopBigHero(); } catch (e) {} stopBigHero = null; }
+    if (c) { c.hidden = true; c.textContent = ''; }
+  }
+  function openHeroModal(mode) {
+    var c = $('modalContainer');
+    if (!c) return;
+    closeHeroModal();
+    c.hidden = false;
+    var overlay = el('div', 'modal-overlay');
+    var box = el('div', 'modal-box');
+    var head = el('div', 'modal-head');
+    head.appendChild(el('h2', null, mode === 'chat' ? '💬 Питомец говорит' : 'Твой питомец'));
+    var x = el('button', 'modal-close', '✕');
+    x.onclick = closeHeroModal;
+    head.appendChild(x);
+    box.appendChild(head);
+
+    var cv = el('canvas');
+    cv.width = 96; cv.height = 64;
+    cv.style.cssText = 'display:block;margin:6px auto 12px;width:min(300px,80vw);height:auto;image-rendering:pixelated;border-radius:16px';
+    box.appendChild(cv);
+    try { stopBigHero = Hero.start(cv, heroOpts); } catch (e) { console.warn(e); }
+
+    var bubble = el('div', 'bubble', $('bubble') ? $('bubble').textContent : '');
+    bubble.style.cssText = 'text-align:center;margin:0 0 12px';
+    box.appendChild(bubble);
+
+    var kinds = ['morning', 'noon', 'evening', 'general', 'done'];
+    var more = el('button', 'btn', 'Ещё реплика');
+    more.style.cssText = 'width:100%';
+    more.onclick = function () {
+      var kind = ui.heroMood === 'tired' ? 'tired' : kinds[Math.floor(Math.random() * kinds.length)];
+      var t = Content.reply(kind, { section: 'general' });
+      bubble.textContent = t;
+      setHeroSpeech(t);
+      hapticImpact('light');
+    };
+    box.appendChild(more);
+    if (mode === 'chat') more.onclick();
+
+    overlay.onclick = function (e) { if (e.target === overlay) closeHeroModal(); };
+    overlay.appendChild(box);
+    c.appendChild(overlay);
+    hapticImpact('light');
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('#btnChat, #btnBig') : null;
+    if (!b) return;
+    openHeroModal(b.id === 'btnChat' ? 'chat' : 'big');
+  });
+
+  /* Верхний отступ под шапку Telegram (полноэкранный режим) */
+  function applyTgInsets() {
+    try {
+      var w = window.Telegram && Telegram.WebApp;
+      if (!w) return;
+      var top = ((w.safeAreaInset && w.safeAreaInset.top) || 0) + ((w.contentSafeAreaInset && w.contentSafeAreaInset.top) || 0);
+      document.documentElement.style.setProperty('--tg-top', top + 'px');
+    } catch (e) {}
+  }
+  applyTgInsets();
+  try {
+    var _w = window.Telegram && Telegram.WebApp;
+    if (_w && _w.onEvent) {
+      _w.onEvent('safeAreaChanged', applyTgInsets);
+      _w.onEvent('contentSafeAreaChanged', applyTgInsets);
+      _w.onEvent('fullscreenChanged', applyTgInsets);
+    }
+  } catch (e) {}
+
   function init() {
     // 1. Инициализация Telegram WebApp
     try {

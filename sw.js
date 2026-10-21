@@ -1,5 +1,5 @@
 /* sw.js — Service Worker для офлайн-работы «Ритм недели» */
-const CACHE_NAME = 'ritm-tma-v2';
+const CACHE_NAME = 'ritm-tma-v3';
 const ASSETS = [
   './',
   './index.html',
