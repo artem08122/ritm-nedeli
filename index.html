@@ -656,6 +656,8 @@ body {
 }
 
 
+@media (max-width:400px){#tabs button{font-size:9px!important;letter-spacing:-.2px}#tabs button svg{width:22px;height:22px}#tabs{padding-left:2px;padding-right:2px}}
+
 </style>
 </head>
 <body>
@@ -1809,6 +1811,7 @@ window.getIconSvg = function(id) {
       week: 'Неделя',
       sections: 'Разделы',
       stats: 'Статистика',
+      finance: 'Деньги',
       hero: 'Герой',
       settings: 'Настройки',
       save: 'Сохранить',
@@ -1946,6 +1949,7 @@ window.getIconSvg = function(id) {
       week: 'Week',
       sections: 'Sections',
       stats: 'Statistics',
+      finance: 'Money',
       hero: 'Pet',
       settings: 'Settings',
       save: 'Save',
@@ -4948,7 +4952,8 @@ var App = (function () {
       sound: true,
       haptic: true
     },
-    ach: {}
+    ach: {},
+    fin: [] // траты: {id,date,amount,type:'must'|'rational'|'emo',note}
   };
 
   var ui = {
@@ -5114,6 +5119,7 @@ var App = (function () {
       if (!err && loaded && loaded.v) {
         for (var k in loaded) state[k] = loaded[k];
       }
+      if (!Array.isArray(state.fin)) state.fin = [];
       // Подтягиваем имя пользователя из Telegram, если не заполнено
       if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
         var u = window.Telegram.WebApp.initDataUnsafe.user;
@@ -5369,6 +5375,7 @@ var App = (function () {
     ['today', 'today', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'],
     ['week', 'week', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>'],
     ['sections', 'sections', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>'],
+    ['finance', 'finance', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10h19M16.5 14.5h2"/></svg>'],
     ['stats', 'stats', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>'],
     ['hero', 'hero', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>'],
     ['settings', 'settings', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>']
@@ -5408,6 +5415,7 @@ var App = (function () {
     if (ui.tab === 'today') renderToday(v);
     else if (ui.tab === 'week') renderWeek(v);
     else if (ui.tab === 'sections') renderSections(v);
+    else if (ui.tab === 'finance') renderFinance(v);
     else if (ui.tab === 'stats') renderStats(v);
     else if (ui.tab === 'hero') renderHero(v);
     else if (ui.tab === 'settings') renderSettings(v);
@@ -5755,6 +5763,136 @@ var App = (function () {
   /* ====================================================================
      ЭКРАН 4: СТАТИСТИКА
      ==================================================================== */
+  /* ====================================================================
+     ДЕНЬГИ: траты по типам — обязательные / рациональные / эмоциональные
+     ==================================================================== */
+  var FIN_TYPES = [
+    { id: 'must', emoji: '🧱', name: 'Обязательные', hint: 'жильё, еда, транспорт, долги', color: '#0A84FF' },
+    { id: 'rational', emoji: '🧠', name: 'Рациональные', hint: 'осознанные покупки, польза, вложения', color: '#30B15A' },
+    { id: 'emo', emoji: '💥', name: 'Эмоциональные', hint: 'импульс, стресс, «захотелось»', color: '#FF6B3D' }
+  ];
+  function finType(id) { return FIN_TYPES.filter(function (t) { return t.id === id; })[0] || FIN_TYPES[0]; }
+  function fmtMoney(n) { return Math.round(n).toLocaleString('ru-RU') + ' ₽'; }
+  function monthKey(d) { return d.getFullYear() + '-' + (d.getMonth() < 9 ? '0' : '') + (d.getMonth() + 1); }
+  var MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+  function renderFinance(v) {
+    if (!ui.finMonth) ui.finMonth = monthKey(new Date());
+    if (!ui.finType) ui.finType = 'rational';
+    var parts = ui.finMonth.split('-');
+    var y = +parts[0], m = +parts[1] - 1;
+    v.appendChild(el('h1', null, 'Деньги'));
+
+    // переключатель месяца
+    var nav = el('div', 'row sp');
+    nav.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:10px';
+    var prev = el('button', 'btn ghost sm', '‹');
+    prev.onclick = function () { var d = new Date(y, m - 1, 1); ui.finMonth = monthKey(d); render(); };
+    var next = el('button', 'btn ghost sm', '›');
+    next.onclick = function () { var d = new Date(y, m + 1, 1); ui.finMonth = monthKey(d); render(); };
+    nav.appendChild(prev);
+    nav.appendChild(el('b', null, MONTHS_RU[m] + ' ' + y));
+    nav.appendChild(next);
+    v.appendChild(nav);
+
+    var items = state.fin.filter(function (e) { return e.date.slice(0, 7) === ui.finMonth; });
+    var sums = { must: 0, rational: 0, emo: 0 };
+    items.forEach(function (e) { sums[e.type] = (sums[e.type] || 0) + e.amount; });
+    var total = sums.must + sums.rational + sums.emo;
+
+    // итоги по типам
+    var card = el('div', 'card');
+    var top = el('div');
+    top.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px';
+    top.appendChild(el('span', 'muted small', 'Всего за месяц'));
+    var tb = el('b', null, fmtMoney(total)); tb.style.fontSize = '24px';
+    top.appendChild(tb);
+    card.appendChild(top);
+    FIN_TYPES.forEach(function (t) {
+      var pct = total ? Math.round(sums[t.id] / total * 100) : 0;
+      var row = el('div'); row.style.cssText = 'margin-bottom:10px';
+      var l = el('div'); l.style.cssText = 'display:flex;justify-content:space-between;font-weight:650;margin-bottom:4px';
+      l.appendChild(el('span', null, t.emoji + ' ' + t.name));
+      l.appendChild(el('span', null, fmtMoney(sums[t.id]) + ' · ' + pct + '%'));
+      var bar = el('div', 'pbar'); var i = el('i'); i.style.width = pct + '%'; i.style.background = t.color; bar.appendChild(i);
+      row.appendChild(l); row.appendChild(bar);
+      card.appendChild(row);
+    });
+    if (total > 0) {
+      var emoPct = sums.emo / total * 100;
+      var tip = emoPct >= 30 ? '💡 Эмоциональных трат ' + Math.round(emoPct) + '% — попробуй паузу 24 часа перед такой покупкой.'
+        : emoPct > 0 ? '👍 Эмоциональных трат немного — так держать.' : '✨ Пока ни одной эмоциональной траты.';
+      var tp = el('div', 'muted small', tip); tp.style.marginTop = '4px';
+      card.appendChild(tp);
+    }
+    v.appendChild(card);
+
+    // форма добавления
+    var form = el('div', 'card');
+    form.appendChild(el('b', null, 'Новая трата'));
+    var amount = el('input', 'input'); amount.type = 'text'; amount.inputMode = 'decimal'; amount.placeholder = 'Сумма, ₽';
+    amount.style.marginTop = '10px';
+    form.appendChild(amount);
+    var seg = el('div'); seg.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:10px 0';
+    var segBtns = {};
+    function paintSeg() {
+      FIN_TYPES.forEach(function (t) {
+        var b = segBtns[t.id], on = ui.finType === t.id;
+        b.style.background = on ? t.color : 'var(--card2)';
+        b.style.color = on ? '#fff' : 'var(--ink)';
+      });
+    }
+    FIN_TYPES.forEach(function (t) {
+      var b = el('button', 'btn', t.emoji + '\n' + t.name);
+      b.style.cssText = 'white-space:pre-line;font-size:11px;padding:8px 2px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis';
+      b.onclick = function () { ui.finType = t.id; paintSeg(); hint.textContent = t.hint; hapticImpact('light'); };
+      segBtns[t.id] = b; seg.appendChild(b);
+    });
+    form.appendChild(seg);
+    var hint = el('div', 'muted small', finType(ui.finType).hint); hint.style.marginBottom = '10px';
+    form.appendChild(hint);
+    var note = el('input', 'input'); note.placeholder = 'На что? (необязательно)';
+    form.appendChild(note);
+    var add = el('button', 'btn', 'Добавить'); add.style.cssText = 'width:100%;margin-top:10px';
+    add.onclick = function () {
+      var val = parseFloat(String(amount.value).replace(/\s/g, '').replace(',', '.'));
+      if (!(val > 0)) { toast('Введи сумму больше нуля'); amount.focus(); return; }
+      state.fin.push({ id: 'f' + Date.now().toString(36) + Math.floor(Math.random() * 1000), date: todayKey(), amount: Math.round(val * 100) / 100, type: ui.finType, note: note.value.trim() });
+      save(); hapticNotification('success'); toast(finType(ui.finType).emoji + ' Записано: ' + fmtMoney(val));
+      ui.finMonth = monthKey(new Date());
+      render();
+    };
+    form.appendChild(add);
+    v.appendChild(form);
+    paintSeg();
+
+    // список
+    if (items.length) {
+      var lc = el('div', 'card');
+      lc.appendChild(el('b', null, 'Записи'));
+      items.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }).forEach(function (e) {
+        var t = finType(e.type);
+        var r = el('div'); r.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)';
+        r.appendChild(el('span', null, t.emoji));
+        var mid = el('div'); mid.style.cssText = 'flex:1;min-width:0';
+        var nm = el('div', null, e.note || t.name); nm.style.cssText = 'font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        mid.appendChild(nm);
+        mid.appendChild(el('div', 'muted small', e.date.slice(8, 10) + '.' + e.date.slice(5, 7) + ' · ' + t.name));
+        r.appendChild(mid);
+        var am = el('b', null, fmtMoney(e.amount)); am.style.whiteSpace = 'nowrap';
+        r.appendChild(am);
+        var del = el('button', 'btn ghost sm', '✕'); del.setAttribute('aria-label', 'Удалить');
+        del.onclick = function () {
+          state.fin = state.fin.filter(function (x) { return x.id !== e.id; });
+          save(); render(); toast('Удалено');
+        };
+        r.appendChild(del);
+        lc.appendChild(r);
+      });
+      v.appendChild(lc);
+    }
+  }
+
   function renderStats(v) {
     v.appendChild(el('h1', null, I18n.t('statsTitle')));
 
