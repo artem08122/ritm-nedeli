@@ -4953,7 +4953,14 @@ var App = (function () {
       haptic: true
     },
     ach: {},
-    fin: [] // траты: {id,date,amount,type:'must'|'rational'|'emo',note}
+    fin: [], // траты: {id,date,amount,type:'must'|'rational'|'emo',note}
+    inc: [], // доходы/зарплата: {id,date,amount,note}
+    hp: 100, // здоровье героя 0..100
+    hpDay: null, // дата последнего восстановления
+    dead: false,
+    deaths: 0,
+    bad: null, // вредные привычки: {id,name,emoji,dmg}
+    badLogs: {} // 'YYYY-MM-DD': {badId: count}
   };
 
   var ui = {
@@ -5120,6 +5127,20 @@ var App = (function () {
         for (var k in loaded) state[k] = loaded[k];
       }
       if (!Array.isArray(state.fin)) state.fin = [];
+      if (!Array.isArray(state.inc)) state.inc = [];
+      if (typeof state.hp !== 'number') state.hp = 100;
+      if (!state.badLogs) state.badLogs = {};
+      if (!Array.isArray(state.bad)) {
+        state.bad = [
+          { id: 'b_smoke', name: 'Сигареты', emoji: '🚬', dmg: 8 },
+          { id: 'b_alc', name: 'Алкоголь', emoji: '🍺', dmg: 12 },
+          { id: 'b_fast', name: 'Фастфуд / сладкое', emoji: '🍔', dmg: 5 },
+          { id: 'b_scroll', name: 'Бесцельный скроллинг', emoji: '📱', dmg: 4 },
+          { id: 'b_energy', name: 'Энергетики', emoji: '⚡', dmg: 6 },
+          { id: 'b_late', name: 'Недосып', emoji: '🌙', dmg: 8 }
+        ];
+      }
+      regenHp();
       // Подтягиваем имя пользователя из Telegram, если не заполнено
       if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
         var u = window.Telegram.WebApp.initDataUnsafe.user;
@@ -5244,8 +5265,9 @@ var App = (function () {
   function heroOpts() {
     return {
       level: levelOf(state.xp),
-      mood: ui.heroMood,
-      pet: state.user.pet || 'fox'
+      mood: state.dead || state.hp < 25 ? 'broken' : ui.heroMood,
+      pet: state.user.pet || 'fox',
+      health: heroHealth()
     };
   }
 
@@ -5253,7 +5275,7 @@ var App = (function () {
     var li = lvlInfo();
     if ($('lvlTxt')) $('lvlTxt').textContent = I18n.t('levelShort', { n: li.level }) + ' · ' + Content.levelNames(li.level);
     if ($('xpBar')) $('xpBar').style.width = Math.round(li.pct * 100) + '%';
-    if ($('xpTxt')) $('xpTxt').textContent = li.level >= 50 ? 'MAX' : li.cur + '/' + li.need;
+    if ($('xpTxt')) $('xpTxt').textContent = (li.level >= 50 ? 'MAX' : li.cur + '/' + li.need) + ' · ❤️' + Math.round(state.hp);
   }
 
   var stopHeroLoop = null;
@@ -5303,6 +5325,7 @@ var App = (function () {
       state.totalDone++;
       if (habit.type === 'counter') state.counterCompleted++;
       addXP(10, e);
+      if (!state.dead) state.hp = Math.min(100, state.hp + 1);
       updateStreakOnActivity();
       celebrate(e ? e.clientX : null, e ? e.clientY : null);
       setHeroSpeech(Content.reply('done', { section: habit.sectionId }));
@@ -5501,6 +5524,7 @@ var App = (function () {
       btnAdd.onclick = function () { ui.tab = 'sections'; render(); };
       emptyCard.appendChild(btnAdd);
       v.appendChild(emptyCard);
+      renderBadCard(v);
       return;
     }
 
@@ -5540,6 +5564,7 @@ var App = (function () {
 
       v.appendChild(scard);
     }
+    renderBadCard(v);
   }
 
   function renderTodayHabitRow(habit, today, color) {
@@ -5764,6 +5789,139 @@ var App = (function () {
      ЭКРАН 4: СТАТИСТИКА
      ==================================================================== */
   /* ====================================================================
+     ВРЕДНЫЕ ПРИВЫЧКИ: каждая «вылазка» отнимает здоровье героя
+     ==================================================================== */
+  function heroHealth() {
+    var hp = state.hp;
+    return {
+      hp: hp,
+      dead: !!state.dead,
+      bed: !state.dead && hp < 15,
+      pale: hp < 30 ? 2 : hp < 55 ? 1 : 0,
+      dark: hp < 40 ? 2 : hp < 70 ? 1 : 0,
+      cough: hp < 25 ? 3 : hp < 45 ? 2 : hp < 65 ? 1 : 0,
+      jitter: hp < 30 ? 2 : hp < 50 ? 1 : 0
+    };
+  }
+  // +10 HP за каждый прошедший день (только если жив)
+  function regenHp() {
+    var today = todayKey();
+    if (!state.hpDay) { state.hpDay = today; return; }
+    if (state.hpDay === today) return;
+    var days = Math.round((parseDate(today) - parseDate(state.hpDay)) / 86400000);
+    if (days > 0 && !state.dead) state.hp = Math.min(100, state.hp + 10 * days);
+    state.hpDay = today;
+  }
+  function badCountToday(id) { return ((state.badLogs[todayKey()] || {})[id]) || 0; }
+  function logBad(b) {
+    if (state.dead) { toast('Герой погиб. Воскреси его!'); return; }
+    var t = todayKey();
+    if (!state.badLogs[t]) state.badLogs[t] = {};
+    state.badLogs[t][b.id] = (state.badLogs[t][b.id] || 0) + 1;
+    state.hp = Math.max(0, state.hp - b.dmg);
+    hapticNotification('error');
+    if (state.hp <= 0) {
+      state.dead = true; state.deaths = (state.deaths || 0) + 1;
+      setHeroSpeech('Герой погиб из-за вредных привычек… Но его можно воскресить.');
+      toast('💀 Герой погиб');
+    } else {
+      setHeroSpeech(b.emoji + ' Ох… −' + b.dmg + ' здоровья. Осталось ' + Math.round(state.hp) + '.');
+      toast(b.emoji + ' −' + b.dmg + ' ❤️');
+    }
+    updateHeroMood(); save(); rerenderSoft(); startHero();
+  }
+  function reviveHero() {
+    state.dead = false; state.hp = 50;
+    state.xp = Math.round(state.xp * 0.75);
+    hapticNotification('success');
+    setHeroSpeech('Я вернулся! Береги меня, пожалуйста.');
+    toast('✨ Герой воскрешён (−25% XP)');
+    updateHeroMood(); save(); render(); startHero();
+  }
+  function renderBadCard(v) {
+    var card = el('div', 'card');
+    var head = el('div'); head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px';
+    head.appendChild(el('h3', null, '☠️ Вредные привычки'));
+    var cfg = el('button', 'btn ghost sm', 'Настроить');
+    cfg.onclick = openBadModal;
+    head.appendChild(cfg);
+    card.appendChild(head);
+
+    var hpRow = el('div'); hpRow.style.cssText = 'display:flex;justify-content:space-between;font-weight:650;margin-bottom:4px';
+    hpRow.appendChild(el('span', null, state.dead ? '💀 Герой погиб' : '❤️ Здоровье героя'));
+    hpRow.appendChild(el('span', null, Math.round(state.hp) + ' / 100'));
+    card.appendChild(hpRow);
+    var bar = el('div', 'pbar'); var bi = el('i');
+    bi.style.width = Math.round(state.hp) + '%';
+    bi.style.background = state.hp > 60 ? '#30B15A' : state.hp > 30 ? '#FFB020' : '#FF453A';
+    bar.appendChild(bi); card.appendChild(bar);
+    var sub = el('div', 'muted small', state.dead ? 'Воскреси героя, чтобы продолжить (−25% XP).' : 'Каждый вредный пункт отнимает здоровье. +10 за каждый новый день.');
+    sub.style.cssText = 'margin:6px 0 10px'; card.appendChild(sub);
+
+    if (state.dead) {
+      var rv = el('button', 'btn', '✨ Воскресить героя');
+      rv.style.width = '100%'; rv.onclick = reviveHero; card.appendChild(rv);
+    } else {
+      var grid = el('div'); grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px';
+      state.bad.forEach(function (b) {
+        var n = badCountToday(b.id);
+        var btn = el('button', 'btn ghost');
+        btn.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;text-align:left;min-width:0';
+        var t1 = el('span', null, b.emoji + ' ' + b.name); t1.style.cssText = 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%';
+        btn.appendChild(t1);
+        btn.appendChild(el('span', 'muted small', '−' + b.dmg + ' ❤️' + (n ? ' · сегодня ×' + n : '')));
+        btn.onclick = function () { logBad(b); };
+        grid.appendChild(btn);
+      });
+      card.appendChild(grid);
+      if (!state.bad.length) card.appendChild(el('div', 'muted small', 'Список пуст — добавь через «Настроить».'));
+    }
+    v.appendChild(card);
+  }
+  function openBadModal() {
+    var c = $('modalContainer'); if (!c) return;
+    c.hidden = false; c.textContent = '';
+    var overlay = el('div', 'modal-overlay'), box = el('div', 'modal-box');
+    var head = el('div', 'modal-head');
+    head.appendChild(el('h2', null, 'Вредные привычки'));
+    var x = el('button', 'modal-close', '✕');
+    x.onclick = function () { c.hidden = true; c.textContent = ''; render(); };
+    head.appendChild(x); box.appendChild(head);
+    var list = el('div'); box.appendChild(list);
+    function paint() {
+      list.textContent = '';
+      state.bad.forEach(function (b) {
+        var r = el('div'); r.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px';
+        r.appendChild(el('span', null, b.emoji));
+        var nm = el('div', null, b.name); nm.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        r.appendChild(nm);
+        var d = el('input', 'input'); d.type = 'number'; d.min = 1; d.max = 50; d.value = b.dmg; d.style.cssText = 'width:70px;min-height:38px;padding:4px 8px';
+        d.onchange = function () { b.dmg = Math.max(1, Math.min(50, +d.value || 1)); save(); };
+        r.appendChild(d); r.appendChild(el('span', 'muted small', '❤️'));
+        var del = el('button', 'btn ghost sm', '✕');
+        del.onclick = function () { state.bad = state.bad.filter(function (z) { return z.id !== b.id; }); save(); paint(); };
+        r.appendChild(del); list.appendChild(r);
+      });
+    }
+    paint();
+    box.appendChild(el('label', 'muted small', 'Новая вредная привычка'));
+    var row = el('div'); row.style.cssText = 'display:flex;gap:8px';
+    var em = el('input', 'input'); em.value = '🚫'; em.style.cssText = 'width:60px;text-align:center';
+    var nn = el('input', 'input'); nn.placeholder = 'Название'; nn.style.flex = '1';
+    row.appendChild(em); row.appendChild(nn); box.appendChild(row);
+    var dm = el('input', 'input'); dm.type = 'number'; dm.value = 5; dm.min = 1; dm.max = 50;
+    box.appendChild(el('label', 'muted small', 'Урон здоровью за раз (1–50)')); box.appendChild(dm);
+    var add = el('button', 'btn', 'Добавить');
+    add.onclick = function () {
+      if (!nn.value.trim()) { toast('Введи название'); return; }
+      state.bad.push({ id: 'b' + Date.now().toString(36), name: nn.value.trim(), emoji: em.value.trim() || '🚫', dmg: Math.max(1, Math.min(50, +dm.value || 5)) });
+      nn.value = ''; save(); paint();
+    };
+    box.appendChild(add);
+    overlay.appendChild(box); c.appendChild(overlay);
+  }
+
+  /* ====================================================================
      ДЕНЬГИ: траты по типам — обязательные / рациональные / эмоциональные
      ==================================================================== */
   var FIN_TYPES = [
@@ -5799,6 +5957,22 @@ var App = (function () {
     var sums = { must: 0, rational: 0, emo: 0 };
     items.forEach(function (e) { sums[e.type] = (sums[e.type] || 0) + e.amount; });
     var total = sums.must + sums.rational + sums.emo;
+    var incItems = state.inc.filter(function (e) { return e.date.slice(0, 7) === ui.finMonth; });
+    var incTotal = incItems.reduce(function (a, e) { return a + e.amount; }, 0);
+
+    // доход и баланс
+    var bal = el('div', 'card');
+    var g = el('div'); g.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:center';
+    [['💰 Пришло', fmtMoney(incTotal), '#30B15A'], ['🧾 Потрачено', fmtMoney(total), '#FF6B3D'], ['⚖️ Остаток', fmtMoney(incTotal - total), incTotal - total >= 0 ? '#0A84FF' : '#FF453A']].forEach(function (x) {
+      var c1 = el('div'); c1.appendChild(el('div', 'muted small', x[0]));
+      var b1 = el('b', null, x[1]); b1.style.cssText = 'font-size:15px;color:' + x[2]; c1.appendChild(b1); g.appendChild(c1);
+    });
+    bal.appendChild(g);
+    if (incTotal > 0) {
+      var spentPct = Math.round(total / incTotal * 100);
+      var t0 = el('div', 'muted small', 'Потрачено ' + spentPct + '% от дохода за месяц.'); t0.style.marginTop = '8px'; bal.appendChild(t0);
+    }
+    v.appendChild(bal);
 
     // итоги по типам
     var card = el('div', 'card');
@@ -5826,6 +6000,22 @@ var App = (function () {
       card.appendChild(tp);
     }
     v.appendChild(card);
+
+    // форма: зарплата / доход
+    var icard = el('div', 'card');
+    icard.appendChild(el('b', null, '💰 Пришли деньги (зарплата, подработка)'));
+    var iamt = el('input', 'input'); iamt.type = 'text'; iamt.inputMode = 'decimal'; iamt.placeholder = 'Сумма, ₽'; iamt.style.marginTop = '10px';
+    var inote = el('input', 'input'); inote.placeholder = 'Откуда? (например, зарплата)'; inote.style.marginTop = '8px';
+    var iadd = el('button', 'btn', 'Записать доход'); iadd.style.cssText = 'width:100%;margin-top:10px;background:#30B15A';
+    iadd.onclick = function () {
+      var val = parseFloat(String(iamt.value).replace(/\s/g, '').replace(',', '.'));
+      if (!(val > 0)) { toast('Введи сумму больше нуля'); iamt.focus(); return; }
+      state.inc.push({ id: 'i' + Date.now().toString(36) + Math.floor(Math.random() * 1000), date: todayKey(), amount: Math.round(val * 100) / 100, note: inote.value.trim() || 'Доход' });
+      save(); hapticNotification('success'); toast('💰 Записано: ' + fmtMoney(val));
+      ui.finMonth = monthKey(new Date()); render();
+    };
+    icard.appendChild(iamt); icard.appendChild(inote); icard.appendChild(iadd);
+    v.appendChild(icard);
 
     // форма добавления
     var form = el('div', 'card');
@@ -5865,6 +6055,23 @@ var App = (function () {
     form.appendChild(add);
     v.appendChild(form);
     paintSeg();
+
+    if (incItems.length) {
+      var ic = el('div', 'card');
+      ic.appendChild(el('b', null, '💰 Доходы'));
+      incItems.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; }).forEach(function (e) {
+        var r = el('div'); r.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)';
+        var mid = el('div'); mid.style.cssText = 'flex:1;min-width:0';
+        mid.appendChild(el('div', null, e.note)); mid.firstChild.style.fontWeight = '600';
+        mid.appendChild(el('div', 'muted small', e.date.slice(8, 10) + '.' + e.date.slice(5, 7)));
+        r.appendChild(mid);
+        var am = el('b', null, '+' + fmtMoney(e.amount)); am.style.cssText = 'color:#30B15A;white-space:nowrap'; r.appendChild(am);
+        var del = el('button', 'btn ghost sm', '✕'); del.setAttribute('aria-label', 'Удалить');
+        del.onclick = function () { state.inc = state.inc.filter(function (x) { return x.id !== e.id; }); save(); render(); toast('Удалено'); };
+        r.appendChild(del); ic.appendChild(r);
+      });
+      v.appendChild(ic);
+    }
 
     // список
     if (items.length) {
